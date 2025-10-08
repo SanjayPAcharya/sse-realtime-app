@@ -17,69 +17,99 @@ jobs:
       - name: Set up Node.js
         uses: actions/setup-node@v3
         with:
-          node-version: "18"
+          node-version: "20"
 
       - name: Install dependencies and build client
         run: |
           cd client
           npm ci
+
+          echo "============================================"
+          echo "EC2_HOST: ${{ secrets.EC2_HOST }}"
+          echo "============================================"
+
           echo "VITE_APP_API_URL=http://${{ secrets.EC2_HOST }}" > .env.production
+
+          echo "=== .env.production contents ==="
+          cat .env.production
+
           npm run build
+
+          echo "=== API URLs in build ==="
+          grep -roh "http://[^\"' ]*" dist/assets/*.js | sort -u || echo "No URLs found"
+
+          if grep -q "${{ secrets.EC2_HOST }}" dist/assets/*.js; then
+            echo "✅ Correct URL found in build"
+          else
+            echo "❌ EC2 IP not found in build"
+          fi
+
           cd ..
 
       - name: Deploy to EC2
-        uses: appleboy/ssh-action@master
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
-            # Navigate to app directory
             cd ${{ secrets.EC2_APP_DIR }}
 
-            # Pull latest code
             if [ -d ".git" ]; then
               git pull origin main
             else
               git clone https://github.com/SanjayPAcharya/sse-realtime-app.git .
             fi
 
-            # Install server dependencies
             cd server
-            npm ci --production
+            npm install --production
 
-            # Restart backend with PM2
             pm2 delete sse-server || true
             pm2 start server.js --name sse-server
             pm2 save
 
-            # Return to root
             cd ..
+            echo "Backend deployment completed!"
 
-            echo "Deployment completed successfully!"
-
-      - name: Copy built client to EC2
-        uses: appleboy/scp-action@master
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "client/dist/*"
-          target: ${{ secrets.EC2_APP_DIR }}
-          strip_components: 2
-
-      - name: Restart Nginx
-        uses: appleboy/ssh-action@master
+      - name: Prepare Frontend Directory
+        uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
           script: |
+            rm -rf ${{ secrets.EC2_APP_DIR }}/client/dist
+            mkdir -p ${{ secrets.EC2_APP_DIR }}/client/dist
+            echo "Directory prepared"
+
+      - name: Copy built client to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "client/dist/*"
+          target: ${{ secrets.EC2_APP_DIR }}/client/dist/
+          strip_components: 2
+
+      - name: Verify and Restart Services
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            echo "=== Frontend files ==="
+            ls -lh ${{ secrets.EC2_APP_DIR }}/client/dist/ | head -5
+
+            echo "=== URLs in deployed files ==="
+            grep -roh "http://[^\"' ]*" ${{ secrets.EC2_APP_DIR }}/client/dist/assets/*.js | sort -u || echo "No URLs found"
+
             sudo systemctl reload nginx
-            echo "Nginx reloaded successfully!"
+            echo "Nginx reloaded!"
 
       - name: Health Check
         run: |
-          sleep 5
+          sleep 10
           curl -f http://${{ secrets.EC2_HOST }}/api/health || exit 1
-          echo "Health check passed!"
+          echo "✅ Health check passed!"
