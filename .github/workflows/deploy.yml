@@ -1,0 +1,85 @@
+name: Deploy to EC2
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: "18"
+
+      - name: Install dependencies and build client
+        run: |
+          cd client
+          npm ci
+          echo "VITE_APP_API_URL=http://${{ secrets.EC2_HOST }}" > .env.production
+          npm run build
+          cd ..
+
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            # Navigate to app directory
+            cd ${{ secrets.EC2_APP_DIR }}
+
+            # Pull latest code
+            if [ -d ".git" ]; then
+              git pull origin main
+            else
+              git clone https://github.com/SanjayPAcharya/sse-realtime-app.git .
+            fi
+
+            # Install server dependencies
+            cd server
+            npm ci --production
+
+            # Restart backend with PM2
+            pm2 delete sse-server || true
+            pm2 start server.js --name sse-server
+            pm2 save
+
+            # Return to root
+            cd ..
+
+            echo "Deployment completed successfully!"
+
+      - name: Copy built client to EC2
+        uses: appleboy/scp-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "client/dist/*"
+          target: ${{ secrets.EC2_APP_DIR }}
+          strip_components: 2
+
+      - name: Restart Nginx
+        uses: appleboy/ssh-action@master
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USER }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          script: |
+            sudo systemctl reload nginx
+            echo "Nginx reloaded successfully!"
+
+      - name: Health Check
+        run: |
+          sleep 5
+          curl -f http://${{ secrets.EC2_HOST }}/api/health || exit 1
+          echo "Health check passed!"
