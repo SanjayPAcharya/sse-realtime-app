@@ -1,0 +1,38 @@
+.clients-card {
+  background: white;
+  padding: 15px;
+  border-radius: 10px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+}
+
+.clients-card h3 {
+  color: #1e3c72;
+  margin-bottom: 10px;
+  font-size: 1rem;
+}
+
+.clients-list {
+  display: grid;
+  gap: 8px;
+}
+
+.client-item {
+  display: flex;
+  justify-content: space-between;
+  padding: 10px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border-left: 3px solid #667eea;
+}
+
+.client-id {
+  font-weight: 600;
+  color: #1e3c72;
+  font-size: 0.75rem;
+}
+
+.client-time {
+  color: #666;
+  font-size: 0.75rem;
+}
