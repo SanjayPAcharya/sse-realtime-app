@@ -7,7 +7,13 @@ const PORT = process.env.PORT || 3000;
 // Enable CORS for React frontend
 app.use(
   cors({
-    origin: ["http://localhost:3000", "http://localhost:5173"],
+    origin: [
+      "http://localhost:3000",
+      "http://localhost:5173",
+      "http://localhost:8080",  // Added for Docker
+      "https://sse.sanjaykumarp.info",  // For production
+      "https://sseapi.sanjaykumarp.info"  // For production
+    ],
     credentials: true,
   })
 );
