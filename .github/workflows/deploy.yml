@@ -8,7 +8,6 @@ on:
 
 jobs:
   deploy:
-    # Only run if PR was merged (not just closed)
     if: github.event.pull_request.merged == true
     name: Deploy to Production
     runs-on: ubuntu-latest
@@ -33,7 +32,9 @@ jobs:
             --document-name "AWS-RunShellScript" \
             --comment "Deploy from GitHub Actions - PR #${{ github.event.pull_request.number }}" \
             --parameters 'commands=[
+              "#!/bin/bash",
               "set -e",
+              "exec 2>&1",
               "echo \"📦 Deployment started at $(date)\"",
               "echo \"═══════════════════════════════════════\"",
               "cd /home/ec2-user/app",
@@ -57,7 +58,7 @@ jobs:
               "echo \"🧹 Cleaning up old Docker images...\"",
               "docker image prune -af --filter \"until=72h\" || true",
               "echo \"═══════════════════════════════════════\"",
-              "echo \"✅ Deployment completed successfully at $(date)\"",
+              "echo \"✅ DEPLOYMENT_SUCCESS\"",
               "echo \"🌐 Client: https://sse.sanjaykumarp.info\"",
               "echo \"🌐 API: https://sseapi.sanjaykumarp.info\""
             ]' \
@@ -67,8 +68,7 @@ jobs:
           echo "📋 Command ID: $COMMAND_ID"
           echo "⏳ Waiting for deployment to complete..."
 
-          # Wait for command with polling (no --timeout flag)
-          MAX_ATTEMPTS=60  # 10 minutes (60 * 10 seconds)
+          MAX_ATTEMPTS=60
           ATTEMPT=0
 
           while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
@@ -78,13 +78,19 @@ jobs:
               --query 'Status' \
               --output text 2>/dev/null || echo "Pending")
             
-            echo "Status: $STATUS (attempt $((ATTEMPT + 1))/$MAX_ATTEMPTS)"
-            
             if [ "$STATUS" = "Success" ]; then
               echo "✅ Command completed successfully"
               break
             elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
               echo "❌ Command failed with status: $STATUS"
+              
+              # Get error output
+              ERROR=$(aws ssm get-command-invocation \
+                --command-id "$COMMAND_ID" \
+                --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+                --query 'StandardErrorContent' \
+                --output text)
+              echo "Error details: $ERROR"
               exit 1
             fi
             
@@ -93,11 +99,11 @@ jobs:
           done
 
           if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
-            echo "❌ Deployment timed out after 10 minutes"
+            echo "❌ Deployment timed out"
             exit 1
           fi
 
-          # Get command output
+          # Get output
           OUTPUT=$(aws ssm get-command-invocation \
             --command-id "$COMMAND_ID" \
             --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
@@ -109,20 +115,13 @@ jobs:
           echo "$OUTPUT"
           echo "═══════════════════════════════════════"
 
-          # Check for errors
-          ERROR_OUTPUT=$(aws ssm get-command-invocation \
-            --command-id "$COMMAND_ID" \
-            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
-            --query 'StandardErrorContent' \
-            --output text)
-
-          if [ ! -z "$ERROR_OUTPUT" ] && [ "$ERROR_OUTPUT" != "None" ]; then
-            echo "⚠️ Deployment errors detected:"
-            echo "$ERROR_OUTPUT"
+          # Check if deployment actually succeeded by looking for success marker
+          if echo "$OUTPUT" | grep -q "DEPLOYMENT_SUCCESS"; then
+            echo "🎉 Deployment verified successful!"
+          else
+            echo "❌ Deployment may have failed - success marker not found"
             exit 1
           fi
-
-          echo "🎉 Deployment successful!"
 
       - name: Deployment Summary
         if: success()
@@ -136,14 +135,10 @@ jobs:
           echo "- 🌐 API: https://sseapi.sanjaykumarp.info" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**Deployed at:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
 
       - name: Deployment Failed
         if: failure()
         run: |
           echo "### ❌ Deployment Failed" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
-          echo "Please check the logs above for details." >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "**PR #${{ github.event.pull_request.number }}**: ${{ github.event.pull_request.title }}" >> $GITHUB_STEP_SUMMARY
+          echo "Check the logs for details." >> $GITHUB_STEP_SUMMARY
