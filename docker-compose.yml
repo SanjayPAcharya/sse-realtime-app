@@ -34,7 +34,7 @@ services:
       context: ./client
       dockerfile: Dockerfile
       args:
-        VITE_APP_API_URL: http://sseapi.sanjaykumarp.info
+        VITE_APP_API_URL: https://sseapi.sanjaykumarp.info
     container_name: sse-client
     ports:
       - "127.0.0.1:8080:80"
