@@ -10,9 +10,11 @@ app.use(
     origin: [
       "http://localhost:3000",
       "http://localhost:5173",
-      "http://localhost:8080",  // Added for Docker
-      "https://sse.sanjaykumarp.info",  // For production
-      "https://sseapi.sanjaykumarp.info"  // For production
+      "http://localhost:8080", // Added for Docker
+      "http://sse.sanjaykumarp.info", // For non production
+      "http://sseapi.sanjaykumarp.info", // For non production
+      "https://sse.sanjaykumarp.info", // For production
+      "https://sseapi.sanjaykumarp.info", // For production
     ],
     credentials: true,
   })
