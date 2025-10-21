@@ -1,115 +1,130 @@
 name: Deploy to EC2
 
 on:
-  push:
+  pull_request:
+    types: [closed]
     branches:
       - main
-  workflow_dispatch:
 
 jobs:
   deploy:
+    # Only run if PR was merged (not just closed)
+    if: github.event.pull_request.merged == true
+    name: Deploy to Production
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v3
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          node-version: "20"
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: Install dependencies and build client
+      - name: Deploy to EC2 via SSM
         run: |
-          cd client
-          npm ci
+          echo "🚀 Starting deployment to EC2..."
 
-          echo "============================================"
-          echo "EC2_HOST: ${{ secrets.EC2_HOST }}"
-          echo "============================================"
+          COMMAND_ID=$(aws ssm send-command \
+            --instance-ids "${{ secrets.EC2_INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Deploy from GitHub Actions - PR #${{ github.event.pull_request.number }}" \
+            --parameters 'commands=[
+              "set -e",
+              "echo \"📦 Deployment started at $(date)\"",
+              "echo \"═══════════════════════════════════════\"",
+              "cd /home/ec2-user/app",
+              "echo \"📥 Fetching latest code from main branch...\"",
+              "sudo -u ec2-user git fetch origin",
+              "sudo -u ec2-user git reset --hard origin/main",
+              "sudo -u ec2-user git pull origin main",
+              "echo \"Current commit: $(git rev-parse --short HEAD)\"",
+              "echo \"═══════════════════════════════════════\"",
+              "echo \"🐳 Stopping containers...\"",
+              "docker-compose down || true",
+              "echo \"🔨 Building Docker images...\"",
+              "docker-compose build --no-cache",
+              "echo \"🚀 Starting containers...\"",
+              "docker-compose up -d",
+              "echo \"═══════════════════════════════════════\"",
+              "echo \"✅ Verifying deployment...\"",
+              "sleep 5",
+              "docker-compose ps",
+              "echo \"═══════════════════════════════════════\"",
+              "echo \"🧹 Cleaning up old Docker images...\"",
+              "docker image prune -af --filter \"until=72h\" || true",
+              "echo \"═══════════════════════════════════════\"",
+              "echo \"✅ Deployment completed successfully at $(date)\"",
+              "echo \"🌐 Client: https://sse.sanjaykumarp.info\"",
+              "echo \"🌐 API: https://sseapi.sanjaykumarp.info\""
+            ]' \
+            --output text \
+            --query 'Command.CommandId')
 
-          echo "VITE_APP_API_URL=http://${{ secrets.EC2_HOST }}" > .env.production
+          echo "📋 Command ID: $COMMAND_ID"
+          echo "⏳ Waiting for deployment to complete..."
 
-          echo "=== .env.production contents ==="
-          cat .env.production
+          # Wait for command to complete (timeout 10 minutes)
+          aws ssm wait command-executed \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+            --timeout 600 || {
+              echo "❌ Deployment timed out or failed"
+              exit 1
+            }
 
-          npm run build
+          echo "✅ Command execution completed"
 
-          echo "=== API URLs in build ==="
-          grep -roh "http://[^\"' ]*" dist/assets/*.js | sort -u || echo "No URLs found"
+          # Get command output
+          OUTPUT=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+            --query 'StandardOutputContent' \
+            --output text)
 
-          if grep -q "${{ secrets.EC2_HOST }}" dist/assets/*.js; then
-            echo "✅ Correct URL found in build"
-          else
-            echo "❌ EC2 IP not found in build"
+          echo "📄 Deployment Output:"
+          echo "═══════════════════════════════════════"
+          echo "$OUTPUT"
+          echo "═══════════════════════════════════════"
+
+          # Check for errors
+          ERROR_OUTPUT=$(aws ssm get-command-invocation \
+            --command-id "$COMMAND_ID" \
+            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+            --query 'StandardErrorContent' \
+            --output text)
+
+          if [ ! -z "$ERROR_OUTPUT" ] && [ "$ERROR_OUTPUT" != "None" ]; then
+            echo "⚠️ Deployment errors detected:"
+            echo "$ERROR_OUTPUT"
+            exit 1
           fi
 
-          cd ..
+          echo "🎉 Deployment successful!"
 
-      - name: Deploy to EC2
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            cd ${{ secrets.EC2_APP_DIR }}
-
-            if [ -d ".git" ]; then
-              git pull origin main
-            else
-              git clone https://github.com/SanjayPAcharya/sse-realtime-app.git .
-            fi
-
-            cd server
-            npm install --production
-
-            pm2 delete sse-server || true
-            pm2 start server.js --name sse-server
-            pm2 save
-
-            cd ..
-            echo "Backend deployment completed!"
-
-      - name: Prepare Frontend Directory
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            rm -rf ${{ secrets.EC2_APP_DIR }}/client/dist
-            mkdir -p ${{ secrets.EC2_APP_DIR }}/client/dist
-            echo "Directory prepared"
-
-      - name: Copy built client to EC2
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          source: "client/dist/*"
-          target: ${{ secrets.EC2_APP_DIR }}/client/dist/
-          strip_components: 2
-
-      - name: Verify and Restart Services
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
-          key: ${{ secrets.EC2_SSH_KEY }}
-          script: |
-            echo "=== Frontend files ==="
-            ls -lh ${{ secrets.EC2_APP_DIR }}/client/dist/ | head -5
-
-            echo "=== URLs in deployed files ==="
-            grep -roh "http://[^\"' ]*" ${{ secrets.EC2_APP_DIR }}/client/dist/assets/*.js | sort -u || echo "No URLs found"
-
-            sudo systemctl reload nginx
-            echo "Nginx reloaded!"
-
-      - name: Health Check
+      - name: Deployment Summary
+        if: success()
         run: |
-          sleep 10
-          curl -f http://${{ secrets.EC2_HOST }}/api/health || exit 1
-          echo "✅ Health check passed!"
+          echo "### ✅ Deployment Successful! 🚀" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PR #${{ github.event.pull_request.number }}**: ${{ github.event.pull_request.title }}" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployed to:**" >> $GITHUB_STEP_SUMMARY
+          echo "- 🌐 Client: https://sse.sanjaykumarp.info" >> $GITHUB_STEP_SUMMARY
+          echo "- 🌐 API: https://sseapi.sanjaykumarp.info" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Deployed at:** $(date -u '+%Y-%m-%d %H:%M:%S UTC')" >> $GITHUB_STEP_SUMMARY
+
+      - name: Deployment Failed
+        if: failure()
+        run: |
+          echo "### ❌ Deployment Failed" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "Please check the logs above for details." >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**PR #${{ github.event.pull_request.number }}**: ${{ github.event.pull_request.title }}" >> $GITHUB_STEP_SUMMARY
