@@ -67,16 +67,35 @@ jobs:
           echo "📋 Command ID: $COMMAND_ID"
           echo "⏳ Waiting for deployment to complete..."
 
-          # Wait for command to complete (timeout 10 minutes)
-          aws ssm wait command-executed \
-            --command-id "$COMMAND_ID" \
-            --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
-            --timeout 600 || {
-              echo "❌ Deployment timed out or failed"
-              exit 1
-            }
+          # Wait for command with polling (no --timeout flag)
+          MAX_ATTEMPTS=60  # 10 minutes (60 * 10 seconds)
+          ATTEMPT=0
 
-          echo "✅ Command execution completed"
+          while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
+            STATUS=$(aws ssm get-command-invocation \
+              --command-id "$COMMAND_ID" \
+              --instance-id "${{ secrets.EC2_INSTANCE_ID }}" \
+              --query 'Status' \
+              --output text 2>/dev/null || echo "Pending")
+            
+            echo "Status: $STATUS (attempt $((ATTEMPT + 1))/$MAX_ATTEMPTS)"
+            
+            if [ "$STATUS" = "Success" ]; then
+              echo "✅ Command completed successfully"
+              break
+            elif [ "$STATUS" = "Failed" ] || [ "$STATUS" = "Cancelled" ] || [ "$STATUS" = "TimedOut" ]; then
+              echo "❌ Command failed with status: $STATUS"
+              exit 1
+            fi
+            
+            sleep 10
+            ATTEMPT=$((ATTEMPT + 1))
+          done
+
+          if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+            echo "❌ Deployment timed out after 10 minutes"
+            exit 1
+          fi
 
           # Get command output
           OUTPUT=$(aws ssm get-command-invocation \

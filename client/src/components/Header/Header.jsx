@@ -4,7 +4,7 @@ import "./Header.css";
 const Header = ({ isConnected }) => {
   return (
     <div className="header">
-      <h1> Live Dashboard</h1>
+      <h1> NIFTY 51 Live Dashboard</h1>
       <div className="status">
         <div
           className={`status-indicator ${isConnected ? "connected" : ""}`}
