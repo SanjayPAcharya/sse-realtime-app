@@ -1,31 +1,51 @@
-import React, { useEffect, useRef } from "react";
-import Event from "../Event/Event";
+import React, { useRef, useEffect } from "react";
 import "./EventsFeed.css";
 
+const DOT_COLOR = {
+  info:           "var(--primary)",
+  success:        "var(--positive)",
+  warning:        "var(--warning)",
+  error:          "var(--negative)",
+  update:         "var(--purple)",
+  connected:      "var(--positive)",
+  "indices-update": "var(--primary)",
+};
+
 const EventsFeed = ({ events }) => {
-  const prevEventsLengthRef = useRef(0);
+  const prevLenRef = useRef(0);
 
   useEffect(() => {
-    prevEventsLengthRef.current = events.length;
+    prevLenRef.current = events.length;
   }, [events]);
 
   return (
-    <div className="events-section">
-      <div className="events-header">
-        <h3>📡 Live Updates</h3>
-        <span className="event-count">{events.length}</span>
+    <div className="events-slim">
+      <div className="events-slim-header">
+        <div className="events-slim-left">
+          <span className="events-live-dot" />
+          <span className="events-slim-title">Events</span>
+        </div>
+        <span className="events-slim-count">{events.length}</span>
       </div>
 
-      <div className="events-container">
+      <div className="events-slim-list">
         {events.length === 0 ? (
-          <p className="no-events">Connect to receive live market updates...</p>
+          <div className="events-slim-empty">Waiting for events…</div>
         ) : (
-          events.map((event, index) => (
-            <Event
-              key={`${event.timestamp}-${event.id || index}`}
-              event={event}
-              isNew={index === 0 && events.length > prevEventsLengthRef.current}
-            />
+          events.map((e, i) => (
+            <div
+              key={`${e.timestamp}-${i}`}
+              className={`event-slim ${i === 0 && events.length > prevLenRef.current ? "event-new" : ""}`}
+            >
+              <span
+                className="event-slim-dot"
+                style={{ background: DOT_COLOR[e.type] ?? "var(--text-3)" }}
+              />
+              <span className="event-slim-msg">{e.message}</span>
+              <span className="event-slim-time">
+                {new Date(e.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+              </span>
+            </div>
           ))
         )}
       </div>
