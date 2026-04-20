@@ -1,28 +1,22 @@
 import React from "react";
-import "./Event.css";
 
-const Event = ({ event, isNew = false }) => {
+const Event = ({ event, isNew }) => {
+  const isUp = event.data?.change >= 0;
+
   return (
-    <div className={`event ${event.type} ${isNew ? "event-new" : ""}`}>
-      <div className="event-header">
-        <span className="event-type">{event.type}</span>
-        <span className="event-time">
-          {new Date(event.timestamp).toLocaleTimeString()}
-        </span>
+    <div className={`event-item ${event.type} ${isNew ? "event-new" : ""}`}>
+      <div className="event-row">
+        <span className="event-badge">{event.type}</span>
+        <span className="event-time">{new Date(event.timestamp).toLocaleTimeString()}</span>
       </div>
       <div className="event-message">{event.message}</div>
       {event.data && (
-        <div className="event-data">
-          <span className="mini-stat">
+        <div className="event-data-row">
+          <span className="event-data-chip">
             ₹{event.data.value.toLocaleString("en-IN")}
           </span>
-          <span
-            className={`mini-stat ${
-              event.data.change >= 0 ? "positive" : "negative"
-            }`}
-          >
-            {event.data.change >= 0 ? "+" : ""}
-            {event.data.change.toFixed(2)} ({event.data.changePercent}%)
+          <span className={`event-data-chip ${isUp ? "up" : "down"}`}>
+            {isUp ? "+" : ""}{event.data.change.toFixed(2)} ({event.data.changePercent}%)
           </span>
         </div>
       )}

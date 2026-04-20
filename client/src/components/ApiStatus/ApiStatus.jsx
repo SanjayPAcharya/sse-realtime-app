@@ -1,36 +1,24 @@
 import React from "react";
-import "./ApiStatus.css";
 
-const ApiStatus = ({
-  serverInfo,
-  currentNifty,
-  serverHealth,
-  connectedClients,
-  isConnected,
-}) => {
+const ApiStatus = ({ serverInfo, indicesCount, serverHealth, connectedClients, isConnected }) => {
+  const items = [
+    { name: "Root API",    active: !!serverInfo },
+    { name: "Indices API", active: indicesCount > 0 },
+    { name: "Health API",  active: !!serverHealth },
+    { name: "Clients API", active: !!connectedClients },
+    { name: "SSE Stream",  active: isConnected },
+  ];
+
   return (
-    <div className="api-status">
-      <div className="status-item">
-        <span className={`status-dot ${serverInfo ? "active" : ""}`}></span>
-        <span>Root</span>
-      </div>
-      <div className="status-item">
-        <span className={`status-dot ${currentNifty ? "active" : ""}`}></span>
-        <span>Nifty</span>
-      </div>
-      <div className="status-item">
-        <span className={`status-dot ${serverHealth ? "active" : ""}`}></span>
-        <span>Health</span>
-      </div>
-      <div className="status-item">
-        <span
-          className={`status-dot ${connectedClients ? "active" : ""}`}
-        ></span>
-        <span>Clients</span>
-      </div>
-      <div className="status-item">
-        <span className={`status-dot ${isConnected ? "active" : ""}`}></span>
-        <span>SSE</span>
+    <div className="api-status-card">
+      <div className="card-title">API Status</div>
+      <div className="api-status-list">
+        {items.map(({ name, active }) => (
+          <div key={name} className="api-status-item">
+            <span className="api-status-name">{name}</span>
+            <span className={`api-dot ${active ? "active" : ""}`}></span>
+          </div>
+        ))}
       </div>
     </div>
   );

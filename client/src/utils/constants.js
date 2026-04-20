@@ -12,6 +12,7 @@ export const EVENT_TYPES = {
 export const API_ENDPOINTS = {
   ROOT: "/",
   EVENTS: "/api/events",
+  INDICES: "/api/indices",
   NIFTY: "/api/nifty",
   HEALTH: "/api/health",
   CLIENTS: "/api/clients",
